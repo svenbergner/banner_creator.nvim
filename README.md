@@ -15,7 +15,7 @@ A Neovim plugin to generate banner-style text with `figlet`/`toilet`, `boxes`, a
 :BannerCreator Hello World
 ```
 
-`BannerCreator` prompts for text when no argument is passed. It then opens a Snacks picker where `<Space>` edits or toggles the selected option and `<CR>` inserts the current rendered banner.
+`BannerCreator` prompts for text when no argument is passed. It then opens a Snacks picker where `<Space>` edits or toggles the selected option and `<CR>` inserts the current rendered banner. Font and box-design selection open their own Snacks picker with a live preview for the highlighted choice.
 
 ## Setup
 

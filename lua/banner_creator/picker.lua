@@ -33,7 +33,25 @@ local function value_label(value)
   return tostring(value)
 end
 
+local function preview_valid(ctx)
+  return ctx
+    and ctx.preview
+    and type(ctx.buf) == "number"
+    and vim.api.nvim_buf_is_valid(ctx.buf)
+end
+
+local function set_preview_lines(ctx, lines)
+  if preview_valid(ctx) then
+    pcall(ctx.preview.set_lines, ctx.preview, lines)
+  end
+end
+
 local function select_value(title, values, current, cb)
+  if #values == 0 then
+    vim.notify("No values available for " .. title, vim.log.levels.WARN)
+    return
+  end
+
   vim.ui.select(values, {
     prompt = title,
     format_item = function(item)
@@ -44,6 +62,65 @@ local function select_value(title, values, current, cb)
       cb(choice)
     end
   end)
+end
+
+local function select_preview_value(title, values, current, state, apply_preview, cb)
+  if #values == 0 then
+    vim.notify("No values available for " .. title, vim.log.levels.WARN)
+    return
+  end
+
+  local ok, snacks = pcall(require, "snacks")
+  local Snacks = ok and snacks or _G.Snacks
+  if not Snacks or not Snacks.picker then
+    select_value(title, values, current, cb)
+    return
+  end
+
+  local preview_token = 0
+  local items = {}
+  for _, value in ipairs(values) do
+    items[#items + 1] = {
+      value = value,
+      text = value == current and (tostring(value) .. " *") or tostring(value),
+    }
+  end
+
+  Snacks.picker.pick({
+    title = title,
+    prompt = title .. " ",
+    auto_close = false,
+    items = items,
+    format = "text",
+    preview = function(ctx)
+      preview_token = preview_token + 1
+      local token = preview_token
+      local preview_opts = vim.deepcopy(state.opts)
+      apply_preview(preview_opts, ctx.item.value)
+
+      ctx.preview:reset()
+      ctx.preview:minimal()
+      ctx.preview:set_title("Preview: " .. tostring(ctx.item.value))
+      ctx.preview:set_lines({ "Rendering..." })
+
+      pipeline.render(state.text, preview_opts, function(output, err)
+        if token ~= preview_token or not preview_valid(ctx) then
+          return
+        end
+        if err then
+          set_preview_lines(ctx, vim.split(err, "\n", { plain = true }))
+        else
+          set_preview_lines(ctx, vim.split(output or "", "\n", { plain = true }))
+        end
+      end)
+    end,
+    confirm = function(selection_picker, selected)
+      selection_picker:close()
+      if selected and selected.value ~= nil then
+        cb(selected.value)
+      end
+    end,
+  })
 end
 
 local function input_value(title, current, cb)
@@ -100,6 +177,9 @@ local function edit_option(picker, item, state)
 
   local function changed()
     refresh_items(picker, state)
+    pcall(function()
+      picker:focus("list", { show = true })
+    end)
   end
 
   if key == "renderer" then
@@ -110,7 +190,9 @@ local function edit_option(picker, item, state)
     end)
   elseif key == "font" then
     local fonts = discovery.fonts(opts.renderer)
-    select_value("Font", fonts, opts.font, function(choice)
+    select_preview_value("Font", fonts, opts.font, state, function(preview_opts, choice)
+      preview_opts.font = choice
+    end, function(choice)
       opts.font = choice
       changed()
     end)
@@ -136,7 +218,11 @@ local function edit_option(picker, item, state)
     box.enabled = not box.enabled
     changed()
   elseif key == "boxes_design" then
-    select_value("Box design", discovery.box_designs(), box.design, function(choice)
+    select_preview_value("Box design", discovery.box_designs(), box.design, state, function(preview_opts, choice)
+      preview_opts.boxes.enabled = true
+      preview_opts.boxes.design = choice
+    end, function(choice)
+      box.enabled = true
       box.design = choice
       changed()
     end)
@@ -205,6 +291,7 @@ function M.open(opts)
   Snacks.picker.pick({
     title = "Banner Creator",
     prompt = "Option ",
+    auto_close = false,
     finder = function()
       return rows(state)
     end,
@@ -218,15 +305,15 @@ function M.open(opts)
       ctx.preview:set_title("Preview")
       ctx.preview:set_lines({ "Rendering..." })
       pipeline.render(state.text, state.opts, function(output, err)
-        if token ~= state.preview_token or not vim.api.nvim_buf_is_valid(ctx.buf) then
+        if token ~= state.preview_token or not preview_valid(ctx) then
           return
         end
         state.last_output = output
         state.last_error = err
         if err then
-          ctx.preview:set_lines(vim.split(err, "\n", { plain = true }))
+          set_preview_lines(ctx, vim.split(err, "\n", { plain = true }))
         else
-          ctx.preview:set_lines(vim.split(output or "", "\n", { plain = true }))
+          set_preview_lines(ctx, vim.split(output or "", "\n", { plain = true }))
         end
       end)
     end,
