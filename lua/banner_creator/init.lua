@@ -1,4 +1,5 @@
 local config = require("banner_creator.config")
+local discovery = require("banner_creator.discovery")
 local pipeline = require("banner_creator.pipeline")
 local picker = require("banner_creator.picker")
 
@@ -9,11 +10,22 @@ function M.setup(opts)
 end
 
 function M.render(text, opts, cb)
+  local err = discovery.figlet_error()
+  if err then
+    cb(nil, err)
+    return
+  end
   pipeline.render(text, config.get(opts), cb)
 end
 
 function M.open(opts)
   opts = opts or {}
+  local err = discovery.figlet_error()
+  if err then
+    vim.notify(err, vim.log.levels.ERROR)
+    return
+  end
+
   if opts.text and opts.text ~= "" then
     picker.open(opts)
     return

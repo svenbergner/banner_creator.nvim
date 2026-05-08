@@ -15,29 +15,35 @@ function M.executable(name)
   return vim.fn.executable(name) == 1
 end
 
-function M.font_dir(renderer)
-  local key = "font_dir:" .. renderer
+function M.figlet_error()
+  if M.executable("figlet") then
+    return nil
+  end
+  return "banner_creator.nvim requires figlet, but the `figlet` executable was not found in $PATH"
+end
+
+function M.font_dir()
+  local key = "font_dir"
   if cache[key] ~= nil then
     return cache[key]
   end
 
-  if not M.executable(renderer) then
+  if not M.executable("figlet") then
     cache[key] = nil
     return nil
   end
 
-  local ok, stdout = system_sync({ renderer, "-I2" })
+  local ok, stdout = system_sync({ "figlet", "-I2" })
   cache[key] = ok and trim(stdout) or nil
   return cache[key]
 end
 
-function M.fonts(renderer)
-  local key = "fonts:" .. renderer
-  if cache[key] then
-    return cache[key]
+function M.fonts()
+  if cache.fonts then
+    return cache.fonts
   end
 
-  local dir = M.font_dir(renderer)
+  local dir = M.font_dir()
   local fonts = {}
   if dir and vim.uv.fs_stat(dir) then
     for name, kind in vim.fs.dir(dir) do
@@ -47,8 +53,8 @@ function M.fonts(renderer)
     end
   end
   table.sort(fonts)
-  cache[key] = fonts
-  return fonts
+  cache.fonts = fonts
+  return cache.fonts
 end
 
 function M.box_designs()
@@ -72,28 +78,6 @@ function M.box_designs()
   table.sort(designs)
   cache.box_designs = designs
   return designs
-end
-
-function M.toilet_filters()
-  if cache.toilet_filters then
-    return cache.toilet_filters
-  end
-
-  local filters = {}
-  if M.executable("toilet") then
-    local ok, stdout = system_sync({ "toilet", "-F", "list" })
-    if ok then
-      for line in stdout:gmatch("[^\r\n]+") do
-        local filter = line:match('^"([^"]+)"')
-        if filter then
-          filters[#filters + 1] = filter
-        end
-      end
-    end
-  end
-  table.sort(filters)
-  cache.toilet_filters = filters
-  return filters
 end
 
 function M.clear_cache()

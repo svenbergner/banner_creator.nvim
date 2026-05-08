@@ -46,6 +46,48 @@ local function set_preview_lines(ctx, lines)
   end
 end
 
+local function preview_display_line_count(ctx, lines)
+  if not (ctx and type(ctx.win) == "number" and vim.api.nvim_win_is_valid(ctx.win)) then
+    return #lines
+  end
+
+  local width = math.max(1, vim.api.nvim_win_get_width(ctx.win))
+  local count = 0
+  for _, line in ipairs(lines) do
+    local display_width = vim.fn.strdisplaywidth(line)
+    count = count + math.max(1, math.ceil(display_width / width))
+  end
+  return count
+end
+
+local function projected_preview_width()
+  local available_width = math.max(1, vim.o.columns - 4)
+  local picker_width = math.floor(available_width * 0.8)
+  local preview_width = math.floor(picker_width * 0.55)
+  return math.max(1, preview_width - 2)
+end
+
+local function picker_preview_width(picker)
+  local win = picker
+    and picker.preview
+    and picker.preview.win
+    and picker.preview.win.win
+  if type(win) == "number" and vim.api.nvim_win_is_valid(win) then
+    return math.max(1, vim.api.nvim_win_get_width(win))
+  end
+  return projected_preview_width()
+end
+
+local function display_line_count_for_width(lines, width)
+  local count = 0
+  width = math.max(1, width)
+  for _, line in ipairs(lines) do
+    local display_width = vim.fn.strdisplaywidth(line)
+    count = count + math.max(1, math.ceil(display_width / width))
+  end
+  return count
+end
+
 local function select_value(title, values, current, cb)
   if #values == 0 then
     vim.notify("No values available for " .. title, vim.log.levels.WARN)
@@ -64,7 +106,8 @@ local function select_value(title, values, current, cb)
   end)
 end
 
-local function select_preview_value(title, values, current, state, apply_preview, cb)
+local function select_preview_value(title, values, current, state, apply_preview, cb, opts)
+  opts = opts or {}
   if #values == 0 then
     vim.notify("No values available for " .. title, vim.log.levels.WARN)
     return
@@ -91,6 +134,27 @@ local function select_preview_value(title, values, current, state, apply_preview
     prompt = title .. " ",
     auto_close = false,
     items = items,
+    layout = {
+      reverse = false,
+      layout = {
+        box = "horizontal",
+        width = 0.8,
+        min_width = 80,
+        height = 0.7,
+        {
+          box = "vertical",
+          width = opts.list_width or 0.3,
+          { win = "list", title = " " .. title .. " ", title_pos = "center", border = true },
+          { win = "input", height = 1, border = true, title = "{title}", title_pos = "center" },
+        },
+        {
+          win = "preview",
+          title = "{preview:Preview}",
+          title_pos = "center",
+          border = true,
+        },
+      },
+    },
     format = "text",
     preview = function(ctx)
       preview_token = preview_token + 1
@@ -134,11 +198,8 @@ end
 local function rows(state)
   local opts = state.opts
   local box = opts.boxes
-  local lolcat = opts.lolcat
   return {
-    { key = "renderer", text = "Renderer: " .. opts.renderer },
     { key = "font", text = "Font: " .. value_label(opts.font) },
-    { key = "toilet_filter", text = "Toilet filter: " .. value_label(opts.toilet_filter) },
     { key = "width", text = "Width: " .. (opts.termwidth and "terminal" or value_label(opts.width)) },
     { key = "mode", text = "Render mode: " .. opts.mode },
     { key = "boxes_enabled", text = "Boxes: " .. bool_label(box.enabled) },
@@ -146,61 +207,142 @@ local function rows(state)
     { key = "boxes_align", text = "Box align: " .. value_label(box.align) },
     { key = "boxes_padding", text = "Box padding: " .. value_label(box.padding) },
     { key = "boxes_size", text = "Box size: " .. value_label(box.size) },
-    { key = "boxes_color", text = "Box color: " .. value_label(box.color) },
-    { key = "lolcat_enabled", text = "Lolcat: " .. bool_label(lolcat.enabled) },
-    { key = "lolcat_ansi", text = "Insert ANSI: " .. bool_label(lolcat.ansi) },
-    { key = "lolcat_spread", text = "Lolcat spread: " .. value_label(lolcat.spread) },
-    { key = "lolcat_freq", text = "Lolcat frequency: " .. value_label(lolcat.freq) },
-    { key = "lolcat_seed", text = "Lolcat seed: " .. value_label(lolcat.seed) },
-    { key = "lolcat_animate", text = "Lolcat animate: " .. bool_label(lolcat.animate) },
-    { key = "lolcat_duration", text = "Lolcat duration: " .. value_label(lolcat.duration) },
-    { key = "lolcat_speed", text = "Lolcat speed: " .. value_label(lolcat.speed) },
-    { key = "lolcat_invert", text = "Lolcat invert: " .. bool_label(lolcat.invert) },
-    { key = "lolcat_truecolor", text = "Lolcat truecolor: " .. bool_label(lolcat.truecolor) },
-    { key = "lolcat_force", text = "Lolcat force: " .. bool_label(lolcat.force) },
   }
 end
 
+local function option_picker_height(state)
+  local option_count = #rows(state)
+  local preview_count = state.preview_line_count or 0
+  local content_height = math.max(option_count + 5, preview_count + 2)
+  return math.max(11, math.min(vim.o.lines - 4, content_height))
+end
+
+local function option_picker_layout(state)
+  local height = option_picker_height(state)
+
+  return {
+    reverse = false,
+    layout = {
+      box = "horizontal",
+      width = 0.8,
+      min_width = 100,
+      height = height,
+      border = "none",
+      {
+        box = "vertical",
+        width = 0.45,
+        { win = "list", title = " Options ", title_pos = "center", border = true },
+        {
+          win = "input",
+          height = 1,
+          border = true,
+          title = " Space: change option | Return: insert result ",
+          title_pos = "center",
+        },
+      },
+      {
+        win = "preview",
+        title = "{preview:Preview}",
+        title_pos = "center",
+        border = true,
+        width = 0.55,
+      },
+    },
+  }
+end
+
+local function update_picker_height(picker, state, preview_line_count)
+  if not picker then
+    return
+  end
+  if state.opts.picker and state.opts.picker.layout then
+    return
+  end
+
+  state.preview_line_count = preview_line_count
+  local height = option_picker_height(state)
+  if state.layout_height == height then
+    return
+  end
+
+  state.layout_height = height
+  if picker.list and picker.list.set_target then
+    picker.list:set_target(nil, nil, { force = true })
+  end
+  if pcall(picker.set_layout, picker, option_picker_layout(state)) then
+    vim.schedule(function()
+      if picker.closed then
+        return
+      end
+      if picker.list and picker.list.set_target then
+        picker.list.target = nil
+      end
+      pcall(picker._show_preview, picker)
+    end)
+  end
+end
+
+local function resize_picker_for_preview(picker, state)
+  if not state.last_preview_lines then
+    return
+  end
+
+  vim.defer_fn(function()
+    if picker.closed then
+      return
+    end
+    local display_lines = display_line_count_for_width(state.last_preview_lines, projected_preview_width()) + 1
+    update_picker_height(picker, state, display_lines)
+    vim.schedule(function()
+      if picker.closed then
+        return
+      end
+      if picker.list then
+        picker.list.target = nil
+      end
+      pcall(picker._show_preview, picker)
+    end)
+  end, 50)
+end
+
 local function refresh_items(picker, state)
+  if picker.list and picker.list.set_target then
+    picker.list:set_target(nil, nil, { force = true })
+  end
   picker:find({ refresh = true })
-  picker:show_preview()
+  vim.schedule(function()
+    if picker.closed then
+      return
+    end
+    if picker.list and picker.list.set_target then
+      picker.list.target = nil
+    end
+    pcall(picker._show_preview, picker)
+  end)
 end
 
 local function edit_option(picker, item, state)
   local opts = state.opts
   local box = opts.boxes
-  local lolcat = opts.lolcat
   local key = item and item.key
   if not key then
     return
   end
 
   local function changed()
+    config.persist(state.opts)
     refresh_items(picker, state)
     pcall(function()
       picker:focus("list", { show = true })
     end)
   end
 
-  if key == "renderer" then
-    select_value("Renderer", { "figlet", "toilet" }, opts.renderer, function(choice)
-      opts.renderer = choice
-      opts.font = nil
-      changed()
-    end)
-  elseif key == "font" then
-    local fonts = discovery.fonts(opts.renderer)
+  if key == "font" then
+    local fonts = discovery.fonts()
     select_preview_value("Font", fonts, opts.font, state, function(preview_opts, choice)
       preview_opts.font = choice
     end, function(choice)
       opts.font = choice
-      changed()
-    end)
-  elseif key == "toilet_filter" then
-    local filters = { "-" }
-    vim.list_extend(filters, discovery.toilet_filters())
-    select_value("Toilet filter", filters, opts.toilet_filter or "-", function(choice)
-      opts.toilet_filter = choice ~= "-" and choice or nil
       changed()
     end)
   elseif key == "width" then
@@ -210,7 +352,9 @@ local function edit_option(picker, item, state)
       changed()
     end)
   elseif key == "mode" then
-    select_value("Render mode", MODES, opts.mode, function(choice)
+    select_preview_value("Render mode", MODES, opts.mode, state, function(preview_opts, choice)
+      preview_opts.mode = choice
+    end, function(choice)
       opts.mode = choice
       changed()
     end)
@@ -227,12 +371,16 @@ local function edit_option(picker, item, state)
       changed()
     end)
   elseif key == "boxes_align" then
-    select_value("Box align", ALIGNMENTS, box.align, function(choice)
+    select_preview_value("Box align", ALIGNMENTS, box.align, state, function(preview_opts, choice)
+      preview_opts.boxes.enabled = true
+      preview_opts.boxes.align = choice
+    end, function(choice)
+      box.enabled = true
       box.align = choice
       changed()
-    end)
+    end, { list_width = 14 })
   elseif key == "boxes_padding" then
-    input_value("Box padding", box.padding, function(value)
+    input_value("Box padding (number = all sides, e.g. 1; boxes format: h1v1)", box.padding, function(value)
       box.padding = value
       changed()
     end)
@@ -241,28 +389,6 @@ local function edit_option(picker, item, state)
       box.size = value
       changed()
     end)
-  elseif key == "boxes_color" then
-    select_value("Box color", { "-", "true", "false" }, box.color == nil and "-" or tostring(box.color), function(choice)
-      box.color = choice == "-" and nil or choice == "true"
-      changed()
-    end)
-  elseif key == "lolcat_enabled" then
-    lolcat.enabled = not lolcat.enabled
-    changed()
-  elseif key == "lolcat_ansi" then
-    lolcat.ansi = not lolcat.ansi
-    changed()
-  elseif key:match("^lolcat_") then
-    local name = key:gsub("^lolcat_", "")
-    if type(lolcat[name]) == "boolean" then
-      lolcat[name] = not lolcat[name]
-      changed()
-    else
-      input_value("Lolcat " .. name, lolcat[name], function(value)
-        lolcat[name] = value
-        changed()
-      end)
-    end
   end
 end
 
@@ -277,9 +403,12 @@ function M.open(opts)
     text = opts.text or "",
     opts = config.get(opts.options),
     preview_token = 0,
+    preview_line_count = 0,
+    last_preview_lines = nil,
     last_output = nil,
     last_error = nil,
   }
+  state.layout_height = option_picker_height(state)
 
   local ok, snacks = pcall(require, "snacks")
   local Snacks = ok and snacks or _G.Snacks
@@ -295,7 +424,7 @@ function M.open(opts)
     finder = function()
       return rows(state)
     end,
-    layout = state.opts.picker and state.opts.picker.layout or nil,
+    layout = state.opts.picker and state.opts.picker.layout or option_picker_layout(state),
     format = "text",
     preview = function(ctx)
       state.preview_token = state.preview_token + 1
@@ -310,11 +439,15 @@ function M.open(opts)
         end
         state.last_output = output
         state.last_error = err
+        local lines
         if err then
-          set_preview_lines(ctx, vim.split(err, "\n", { plain = true }))
+          lines = vim.split(err, "\n", { plain = true })
         else
-          set_preview_lines(ctx, vim.split(output or "", "\n", { plain = true }))
+          lines = vim.split(output or "", "\n", { plain = true })
         end
+        state.last_preview_lines = lines
+        update_picker_height(ctx.picker, state, preview_display_line_count(ctx, lines))
+        set_preview_lines(ctx, lines)
       end)
     end,
     actions = {
@@ -331,6 +464,28 @@ function M.open(opts)
         picker:close()
         insert_text(output)
       end)
+    end,
+    on_show = function(picker)
+      state.resize_augroup = vim.api.nvim_create_augroup(
+        "banner_creator_picker_resize_" .. tostring(picker.id),
+        { clear = true }
+      )
+      vim.api.nvim_create_autocmd("VimResized", {
+        group = state.resize_augroup,
+        callback = function()
+          vim.defer_fn(function()
+            if not picker.closed then
+              resize_picker_for_preview(picker, state)
+            end
+          end, 20)
+        end,
+      })
+    end,
+    on_close = function()
+      if state.resize_augroup then
+        pcall(vim.api.nvim_del_augroup_by_id, state.resize_augroup)
+        state.resize_augroup = nil
+      end
     end,
     win = {
       input = {

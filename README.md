@@ -1,12 +1,12 @@
 # banner_creator.nvim
 
-A Neovim plugin to generate banner-style text with `figlet`/`toilet`, `boxes`, and `lolcat`.
+A Neovim plugin to generate banner-style text with `figlet` and `boxes`.
 
 ## Requirements
 
 - Neovim with `vim.system`
 - [`folke/snacks.nvim`](https://github.com/folke/snacks.nvim) with picker support
-- Optional command line tools: `figlet`, `toilet`, `boxes`, `lolcat`
+- Optional command line tools: `figlet`, `boxes`
 
 ## Usage
 
@@ -17,19 +17,16 @@ A Neovim plugin to generate banner-style text with `figlet`/`toilet`, `boxes`, a
 
 `BannerCreator` prompts for text when no argument is passed. It then opens a Snacks picker where `<Space>` edits or toggles the selected option and `<CR>` inserts the current rendered banner. Font and box-design selection open their own Snacks picker with a live preview for the highlighted choice.
 
+Selected options are persisted across Neovim restarts in `stdpath("state")/banner_creator.nvim/options.json`.
+
 ## Setup
 
 ```lua
 require("banner_creator").setup({
-  renderer = "figlet",
   width = 80,
   boxes = {
     enabled = false,
     design = "simple",
-  },
-  lolcat = {
-    enabled = false,
-    ansi = false,
   },
 })
 ```

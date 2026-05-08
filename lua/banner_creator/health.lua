@@ -36,7 +36,7 @@ function M.check()
     warn("snacks.nvim is required for the picker UI")
   end
 
-  for _, exe in ipairs({ "figlet", "toilet", "boxes", "lolcat" }) do
+  for _, exe in ipairs({ "figlet", "boxes" }) do
     if discovery.executable(exe) then
       ok(exe .. " is executable")
     else

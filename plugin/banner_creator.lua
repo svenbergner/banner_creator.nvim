@@ -9,5 +9,5 @@ vim.api.nvim_create_user_command("BannerCreator", function(args)
   })
 end, {
   nargs = "*",
-  desc = "Create a text banner with figlet/toilet, boxes, and lolcat",
+  desc = "Create a text banner with figlet and boxes",
 })
